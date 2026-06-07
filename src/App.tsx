@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { ReactNode } from 'react'
+import type { ChangeEvent, ReactNode } from 'react'
 import {
   Braces,
   ChevronDown,
@@ -33,6 +33,10 @@ type TransformResult = {
   output: string
   error?: string
 }
+
+const MAX_QR_CONTENT_LENGTH = 1024
+const MAX_QR_LOGO_SIZE = 5 * 1024 * 1024
+const QR_IMAGE_SIZE = 320
 
 type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
 
@@ -748,6 +752,8 @@ function QrCodeTool() {
   const [input, setInput] = useState('https://example.com')
   const [dataUrl, setDataUrl] = useState('')
   const [error, setError] = useState('')
+  const [imageName, setImageName] = useState('')
+  const [imagePreview, setImagePreview] = useState('')
 
   useEffect(() => {
     let alive = true
@@ -759,24 +765,27 @@ function QrCodeTool() {
         return
       }
 
-      if (input.length > 1024) {
+      if (input.length > MAX_QR_CONTENT_LENGTH) {
         setDataUrl('')
-        setError('二维码内容过长，建议控制在 1024 个字符以内。')
+        setError(`二维码内容过长，建议控制在 ${MAX_QR_CONTENT_LENGTH} 个字符以内。`)
         return
       }
 
       try {
         const nextDataUrl = await QRCode.toDataURL(input, {
+          errorCorrectionLevel: imagePreview ? 'H' : 'M',
           margin: 1,
-          width: 256,
+          width: QR_IMAGE_SIZE,
           color: {
             dark: '#111827',
             light: '#ffffff',
           },
         })
 
+        const outputDataUrl = imagePreview ? await composeQrWithLogo(nextDataUrl, imagePreview) : nextDataUrl
+
         if (alive) {
-          setDataUrl(nextDataUrl)
+          setDataUrl(outputDataUrl)
           setError('')
         }
       } catch (caught) {
@@ -792,12 +801,66 @@ function QrCodeTool() {
     return () => {
       alive = false
     }
-  }, [input])
+  }, [imagePreview, input])
+
+  function handleInputChange(value: string) {
+    setInput(value)
+  }
+
+  function clearImage() {
+    setImageName('')
+    setImagePreview('')
+  }
+
+  function handleImageUpload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+
+    if (!file) {
+      return
+    }
+
+    if (!file.type.startsWith('image/')) {
+      setError('请选择图片文件。')
+      return
+    }
+
+    if (file.size > MAX_QR_LOGO_SIZE) {
+      setError(`图片过大，当前仅支持 ${formatFileSize(MAX_QR_LOGO_SIZE)} 以内的图片。`)
+      return
+    }
+
+    const reader = new FileReader()
+
+    reader.onload = () => {
+      const result = String(reader.result ?? '')
+
+      setImageName(file.name)
+      setImagePreview(result)
+      setError('')
+    }
+
+    reader.onerror = () => {
+      setError('图片读取失败，请重新选择。')
+    }
+
+    reader.readAsDataURL(file)
+  }
 
   return (
     <ToolGrid>
       <Panel title="文本或链接">
-        <Textarea value={input} onChange={setInput} placeholder="输入要生成二维码的文本或链接" />
+        <Textarea value={input} onChange={handleInputChange} placeholder="输入要生成二维码的文本或链接" />
+        <div className="qr-upload-box">
+          <label className="qr-upload-button">
+            上传中心图片
+            <input accept="image/*" onChange={handleImageUpload} type="file" />
+          </label>
+          {imageName ? <button onClick={clearImage}>清除图片</button> : null}
+          {imageName ? <span className="qr-upload-name">{imageName}</span> : null}
+        </div>
+        {imagePreview ? <img className="qr-upload-preview" src={imagePreview} alt="上传图片预览" /> : null}
+        <p className="hint">上传图片会作为二维码中心 Logo 叠加，不会写入二维码内容；建议使用简洁图标，过大的 Logo 可能影响扫码。</p>
         <p className="hint">请自行确认二维码内容安全性，工具不会判断链接可信度。</p>
       </Panel>
       <Panel
@@ -815,6 +878,69 @@ function QrCodeTool() {
       </Panel>
     </ToolGrid>
   )
+}
+
+async function composeQrWithLogo(qrDataUrl: string, logoDataUrl: string) {
+  const [qrImage, logoImage] = await Promise.all([loadImage(qrDataUrl), loadImage(logoDataUrl)])
+  const canvas = document.createElement('canvas')
+  const context = canvas.getContext('2d')
+
+  if (!context) {
+    return qrDataUrl
+  }
+
+  canvas.width = QR_IMAGE_SIZE
+  canvas.height = QR_IMAGE_SIZE
+  context.drawImage(qrImage, 0, 0, QR_IMAGE_SIZE, QR_IMAGE_SIZE)
+
+  const logoBoxSize = Math.round(QR_IMAGE_SIZE * 0.32)
+  const logoPadding = Math.round(QR_IMAGE_SIZE * 0.018)
+  const logoBoxX = Math.round((QR_IMAGE_SIZE - logoBoxSize) / 2)
+  const logoBoxY = logoBoxX
+  const logoSize = logoBoxSize - logoPadding * 2
+  const logoRatio = logoImage.width / logoImage.height
+  const drawWidth = logoRatio >= 1 ? logoSize : logoSize * logoRatio
+  const drawHeight = logoRatio >= 1 ? logoSize / logoRatio : logoSize
+  const drawX = logoBoxX + logoPadding + (logoSize - drawWidth) / 2
+  const drawY = logoBoxY + logoPadding + (logoSize - drawHeight) / 2
+
+  context.fillStyle = '#ffffff'
+  roundRect(context, logoBoxX, logoBoxY, logoBoxSize, logoBoxSize, Math.round(QR_IMAGE_SIZE * 0.035))
+  context.fill()
+  context.drawImage(logoImage, drawX, drawY, drawWidth, drawHeight)
+
+  return canvas.toDataURL('image/png')
+}
+
+function loadImage(src: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image()
+    image.onload = () => resolve(image)
+    image.onerror = () => reject(new Error('图片加载失败。'))
+    image.src = src
+  })
+}
+
+function roundRect(context: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) {
+  context.beginPath()
+  context.moveTo(x + radius, y)
+  context.arcTo(x + width, y, x + width, y + height, radius)
+  context.arcTo(x + width, y + height, x, y + height, radius)
+  context.arcTo(x, y + height, x, y, radius)
+  context.arcTo(x, y, x + width, y, radius)
+  context.closePath()
+}
+
+function formatFileSize(bytes: number) {
+  if (bytes < 1024) {
+    return `${bytes}B`
+  }
+
+  if (bytes < 1024 * 1024) {
+    return `${Math.round(bytes / 1024)}KB`
+  }
+
+  return `${Math.round((bytes / 1024 / 1024) * 10) / 10}MB`
 }
 
 function ToolGrid({ children }: { children: ReactNode }) {

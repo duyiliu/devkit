@@ -634,6 +634,62 @@ textarea::placeholder {
   width: 100%;
 }
 
+.qr-upload-box {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.qr-upload-button {
+  align-items: center;
+  border: 1px solid #ded2c2;
+  border-radius: 12px;
+  background: #fbf7f0;
+  color: #3d332d;
+  cursor: pointer;
+  display: inline-flex;
+  justify-content: center;
+  min-height: 34px;
+  padding: 0 12px;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.qr-upload-button:hover {
+  background: #fffdfa;
+  border-color: #cbb9a5;
+  box-shadow: 0 6px 18px rgba(62, 48, 39, 0.08);
+  transform: translateY(-0.5px);
+}
+
+.qr-upload-button input {
+  display: none;
+}
+
+.qr-upload-name {
+  color: #6d5a4d;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qr-upload-preview {
+  background: #fbf7f0;
+  border: 1px solid #e1d6c7;
+  border-radius: 16px;
+  display: block;
+  margin-top: 12px;
+  max-height: 120px;
+  max-width: 100%;
+  object-fit: contain;
+  padding: 10px;
+}
+
 .qr-image {
   background: #fbf7f0;
   border: 1px solid #e1d6c7;
